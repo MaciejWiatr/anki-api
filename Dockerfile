@@ -81,12 +81,14 @@ RUN apt-get update && apt-get install -y wget gnupg && \
     apt-get update && apt-get install -y google-chrome-stable && \
     rm -rf /var/lib/apt/lists/*
 
-# Set PUPPETEER_SKIP_CHROMIUM_DOWNLOAD to avoid downloading during installation
-# and point to the installed Chrome
+# Set Puppeteer environment variables
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+# Disable sandboxing - required in most Docker environments
+ENV PUPPETEER_ARGS="--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage"
 
 # run the app
-USER bun
+# Use root user to avoid permission issues with Chrome
+USER root
 EXPOSE 3000/tcp
 ENTRYPOINT [ "bun", "run", "src/index.ts" ] 
