@@ -1,12 +1,17 @@
 import cors from "@elysiajs/cors";
 import swagger from "@elysiajs/swagger";
 import { Elysia, t } from "elysia";
-import puppeteer, { Page } from "puppeteer";
+import puppeteer, { Browser, Page } from "puppeteer";
 
-const browser = await puppeteer.launch();
+// Configure puppeteer launch options
+const getLaunchOptions = () => ({
+  headless: true,
+  args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+});
 
 const setAuth = async (
   page: Page,
+  browser: Browser,
   { webToken, userToken }: { webToken?: string; userToken?: string }
 ) => {
   // Clear all cookies
@@ -74,36 +79,43 @@ const app = new Elysia()
   .post(
     "/login",
     async ({ body }) => {
-      const page = await browser.newPage();
+      // Launch a new browser for this request
+      const browser = await puppeteer.launch(getLaunchOptions());
+      try {
+        const page = await browser.newPage();
 
-      await page.goto("https://ankiweb.net/account/login");
+        await page.goto("https://ankiweb.net/account/login");
 
-      await page.locator('[autocomplete="username"]').fill(body.login);
-      await page.locator('[type="password"]').fill(body.password);
+        await page.locator('[autocomplete="username"]').fill(body.login);
+        await page.locator('[type="password"]').fill(body.password);
 
-      await page
-        .locator("body > div > main > form > div:nth-child(3) > button")
-        .click();
+        await page
+          .locator("body > div > main > form > div:nth-child(3) > button")
+          .click();
 
-      await page.waitForNavigation();
+        await page.waitForNavigation();
 
-      const cookies = await browser.cookies();
+        const cookies = await browser.cookies();
 
-      // Find both tokens from ankiweb.net and ankiuser.net
-      const ankiwebToken = cookies.find(
-        (c) => c.name === "ankiweb" && c.domain === "ankiweb.net"
-      )?.value;
-      const ankiuserToken = cookies.find(
-        (c) => c.name === "ankiweb" && c.domain === "ankiuser.net"
-      )?.value;
+        // Find both tokens from ankiweb.net and ankiuser.net
+        const ankiwebToken = cookies.find(
+          (c) => c.name === "ankiweb" && c.domain === "ankiweb.net"
+        )?.value;
+        const ankiuserToken = cookies.find(
+          (c) => c.name === "ankiweb" && c.domain === "ankiuser.net"
+        )?.value;
 
-      await browser.deleteCookie();
-      await page.close();
+        await browser.deleteCookie();
+        await page.close();
 
-      return {
-        ankiwebToken,
-        ankiuserToken,
-      };
+        return {
+          ankiwebToken,
+          ankiuserToken,
+        };
+      } finally {
+        // Ensure browser is closed even if there's an error
+        await browser.close();
+      }
     },
     {
       body: t.Object({
@@ -115,24 +127,22 @@ const app = new Elysia()
   .get(
     "/decks",
     async ({ headers }) => {
-      const page = await browser.newPage();
+      // Launch a new browser for this request
+      const browser = await puppeteer.launch(getLaunchOptions());
+      try {
+        const page = await browser.newPage();
 
-      await setAuth(page, {
-        webToken: headers.anki_web_token,
-      });
+        await setAuth(page, browser, {
+          webToken: headers.anki_web_token,
+        });
 
-      await page.goto("https://ankiweb.net/decks");
-
-      await page.waitForSelector(".btn-link.pl-0");
-      const decks = await page.evaluate(() => {
-        return Array.from(document.querySelectorAll(".btn-link.pl-0")).map(
-          (el) => el.textContent?.trim()
-        );
-      });
-
-      await page.close();
-
-      return decks;
+        await page.goto("https://ankiweb.net/decks");
+        const content = await page.content();
+        return content;
+      } finally {
+        // Ensure browser is closed even if there's an error
+        await browser.close();
+      }
     },
     {
       headers: t.Object({
@@ -143,86 +153,102 @@ const app = new Elysia()
   .post(
     "/decks/add",
     async ({ body, headers }) => {
-      const page = await browser.newPage();
+      // Launch a new browser for this request
+      const browser = await puppeteer.launch(getLaunchOptions());
+      try {
+        const page = await browser.newPage();
 
-      await page.goto("https://ankiuser.net/add");
+        // First visit the page without cookies to establish context
+        await page.goto("https://ankiuser.net/add");
 
-      await setAuth(page, {
-        userToken: headers.anki_user_token,
-      });
+        await setAuth(page, browser, {
+          userToken: headers.anki_user_token,
+        });
 
-      await page.goto("https://ankiuser.net/add", {
-        waitUntil: ["networkidle0", "domcontentloaded", "load"],
-      });
+        // Navigate again with full cookies and headers
+        await page.goto("https://ankiuser.net/add", {
+          waitUntil: ["networkidle0", "domcontentloaded", "load"],
+        });
 
-      await page
-        .locator("body > div > main > div.form-group.row.mt-2.mb-4 > div > div")
-        .click();
+        await page
+          .locator(
+            "body > div > main > div.form-group.row.mt-2.mb-4 > div > div"
+          )
+          .click();
 
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+        // sleep 1 second
+        await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      const options = await page.evaluate(() => {
-        function elemToSelector(elem: Element): string {
-          const { tagName, id, className, parentNode } = elem;
+        // get inner html of body > div > main > div.form-group.row.mt-2.mb-4 > div > div
+        const options = await page.evaluate(() => {
+          function elemToSelector(elem: Element): string {
+            const { tagName, id, className, parentNode } = elem;
 
-          if (tagName === "HTML") return "HTML";
+            if (tagName === "HTML") return "HTML";
 
-          let str = tagName;
+            let str = tagName;
 
-          str += id !== "" ? `#${id}` : "";
+            str += id !== "" ? `#${id}` : "";
 
-          if (className) {
-            const classes = className.split(/\s/);
-            for (let i = 0; i < classes.length; i++) {
-              str += `.${classes[i]}`;
+            if (className) {
+              const classes = className.split(/\s/);
+              for (let i = 0; i < classes.length; i++) {
+                str += `.${classes[i]}`;
+              }
             }
+
+            let childIndex = 1;
+
+            for (
+              let e = elem;
+              e.previousElementSibling;
+              e = e.previousElementSibling
+            ) {
+              childIndex += 1;
+            }
+
+            str += `:nth-child(${childIndex})`;
+
+            return `${elemToSelector(parentNode as Element)} > ${str}`;
           }
 
-          let childIndex = 1;
+          return Array.from(document.querySelectorAll(".list-item")).map(
+            (el) => ({
+              text: el.textContent?.trim(),
+              selector: elemToSelector(el),
+            })
+          );
+        });
 
-          for (
-            let e = elem;
-            e.previousElementSibling;
-            e = e.previousElementSibling
-          ) {
-            childIndex += 1;
-          }
+        const option = options.find((o) => o.text === body.deck);
 
-          str += `:nth-child(${childIndex})`;
-
-          return `${elemToSelector(parentNode as Element)} > ${str}`;
+        if (!option) {
+          throw new Error("Deck not found");
         }
 
-        return Array.from(document.querySelectorAll(".list-item")).map(
-          (el) => ({
-            text: el.textContent?.trim(),
-            selector: elemToSelector(el),
-          })
-        );
-      });
+        await page.click(option.selector);
 
-      const option = options.find((o) => o.text === body.deck);
+        // Helper function to get input selector by label text
+        const getInputSelectorByLabel = (labelText: string): string => {
+          return `//span[contains(@class, 'col-form-label') and text()='${labelText}']/following-sibling::div/input`;
+        };
 
-      if (!option) {
-        throw new Error("Deck not found");
+        // Fill in the front and back fields
+        await page.locator(getInputSelectorByLabel("Front")).fill(body.front);
+        await page.locator(getInputSelectorByLabel("Back")).fill(body.back);
+
+        // Fill in tags if provided
+        if (body.tags && body.tags.length > 0) {
+          await page
+            .locator(getInputSelectorByLabel("Tags"))
+            .fill(body.tags.join(" "));
+        }
+
+        return "ok";
+      } finally {
+        // Ensure browser is closed even if there's an error
+        await browser.close();
       }
-
-      await page.click(option.selector);
-
-      const frontSelector =
-        "body > div > main > form > div:nth-child(1) > div > div";
-      const backSelector =
-        "body > div > main > form > div:nth-child(2) > div > div";
-      const submitButtonSelector = "body > div > main > form > button";
-
-      await page.locator(frontSelector).fill(body.front);
-      await page.locator(backSelector).fill(body.back);
-
-      await page.locator(submitButtonSelector).click();
-
-      await page.close();
-
-      return "ok";
     },
     {
       headers: t.Object({
@@ -239,9 +265,11 @@ const app = new Elysia()
   .listen(3000);
 
 console.log(
-  `Anki API is running at ${app.server?.hostname}:${app.server?.port}`
+  `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
 );
 
+// Graceful shutdown - no longer need to close a shared browser instance
 process.on("SIGINT", async () => {
-  await browser.close();
+  console.log("Shutting down server...");
+  process.exit(0);
 });
