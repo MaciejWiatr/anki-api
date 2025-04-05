@@ -3,16 +3,7 @@ import swagger from "@elysiajs/swagger";
 import { Elysia, t } from "elysia";
 import puppeteer, { Page } from "puppeteer";
 
-// Get arguments from environment or use defaults
-const puppeteerArgs = process.env.PUPPETEER_ARGS
-  ? process.env.PUPPETEER_ARGS.split(" ")
-  : ["--no-sandbox", "--disable-setuid-sandbox"];
-
-const browser = await puppeteer.launch({
-  headless: true, // Use headless in Docker
-  args: puppeteerArgs,
-  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-});
+const browser = await puppeteer.launch();
 
 const setAuth = async (
   page: Page,
