@@ -75,6 +75,8 @@ RUN apt-get update && apt-get install -y \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
+RUN bunx puppeteer browsers install chrome
+
 # run the app
 USER bun
 EXPOSE 3000/tcp
