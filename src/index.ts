@@ -228,21 +228,16 @@ const app = new Elysia()
 
         await page.click(option.selector);
 
-        // Helper function to get input selector by label text
-        const getInputSelectorByLabel = (labelText: string): string => {
-          return `//span[contains(@class, 'col-form-label') and text()='${labelText}']/following-sibling::div/input`;
-        };
+        const frontSelector =
+          "body > div > main > form > div:nth-child(1) > div > div";
+        const backSelector =
+          "body > div > main > form > div:nth-child(2) > div > div";
+        const submitButtonSelector = "body > div > main > form > button";
 
-        // Fill in the front and back fields
-        await page.locator(getInputSelectorByLabel("Front")).fill(body.front);
-        await page.locator(getInputSelectorByLabel("Back")).fill(body.back);
+        await page.locator(frontSelector).fill(body.front);
+        await page.locator(backSelector).fill(body.back);
 
-        // Fill in tags if provided
-        if (body.tags && body.tags.length > 0) {
-          await page
-            .locator(getInputSelectorByLabel("Tags"))
-            .fill(body.tags.join(" "));
-        }
+        await page.locator(submitButtonSelector).click();
 
         return "ok";
       } finally {
